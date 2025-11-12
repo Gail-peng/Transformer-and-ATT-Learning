@@ -8,6 +8,12 @@
 
 那么，Transformer能拿来干什么呢？ 
 
+Transformer 的核心设计目标：**处理序列到序列（Seq2Seq）任务**
+
+编码器（Encoder）：负责 “理解输入序列”（如源语言句子、设备故障原始数据），生成包含输入全局上下文信息的编码矩阵（维度：[输入序列长度, 特征维度]）；
+
+解码器（Decoder）：负责 “生成输出序列”（如目标语言句子、故障处理建议），需基于两个信息：① 自身已生成的部分序列（避免看未来信息，通过掩码实现）；② 编码器理解的输入上下文（确保生成内容与输入相关）。
+
 这里列举一些例子：
 
 ## 1. 自然语言处理（NLP）领域
@@ -215,14 +221,7 @@ Softmax 归一化：让注意力成为 “概率分布”
 <img width="361" height="70" alt="image" src="https://github.com/user-attachments/assets/74ebcdbc-3b71-4987-a675-fba963dec774" />
 
 
-
-
-
-
-
-
-
-
+#### Q\K\V矩阵的整体计算过程为
 
 Self-Attention 的输入用矩阵X进行表示，则可以使用线性变阵矩阵WQ,WK,WV计算得到Q,K,V。计算如下图所示，注意 X, Q, K, V 的每一行都表示一个单词。
 
@@ -230,32 +229,158 @@ Self-Attention 的输入用矩阵X进行表示，则可以使用线性变阵矩�
 
 <img width="527" height="750" alt="image" src="https://github.com/user-attachments/assets/e2bcc3dc-0651-4dfd-b233-1f77963d74c7" />
 
+<img width="526" height="231" alt="image" src="https://github.com/user-attachments/assets/11971945-627e-4c7e-9ba2-52211b72042e" />
+
+得到矩阵线性变化结果之后，使用 Softmax 计算每一个单词对于其他单词的 attention 系数，公式中的 Softmax 是对矩阵的每一行进行 Softmax，即每一行的和都变为 1.
+
+<img width="544" height="232" alt="image" src="https://github.com/user-attachments/assets/a3649c2b-15c1-4371-b65c-935170957b4a" />
+
+此处的矩阵语义关系为：
+
+每一行都是一个词语的权重向量；从每一列来看，就是对应不同词语的权重系数。
+
+例如图中的1为“我”，2为“喜欢”，3为“大”，4为“苹果”
+
+那么第一行的向量就在表述 **“我”对于整个句子内容的权重向量**，其中**向量的元素从第一个开始，分别表示对：“我”，“喜欢”，“大”，“苹果”这几个词语的权重系数**
+
+所以最后需要将这个权重系数矩阵与V矩阵进行线性变换，如下图所示。
+
+<img width="526" height="181" alt="image" src="https://github.com/user-attachments/assets/5c5b3ec3-0b49-45eb-b783-c7ea011f0f77" />
+
+就能够实现将每个词语对应的 **权重系数** x 对应的 **词语的V向量**，并将其求和，最终构成的矩阵中，每一行都是一个词语的语义理解向量，包含了该词语对整个句子的注意力信息。如：
+
+<img width="528" height="184" alt="image" src="https://github.com/user-attachments/assets/6f7a64d5-d336-4352-a523-faefb9442885" />
 
 
+### Multi-Head ATT （多头注意力）
+
+Multi-Head ATT 非常的简单，就是用多个 Self-ATT 构成的，如图所示。
+
+<img width="515" height="720" alt="image" src="https://github.com/user-attachments/assets/2cad8677-fa32-4c0f-9b15-235e77838c3e" />
+
+**那么为什么要这么做呢？**
+
+多头注意力（Multi-Head Attention）是自注意力机制的扩展，核心思想是将注意力 “拆分” 为多个并行的 “子注意力头”（Head），
+
+每个头独立计算自注意力，最后将所有头的结果拼接并融合，从而让模型能同时捕捉序列中不同类型的关联关系（比如语义关联、语法依赖、位置关系等）。
+
+单一自注意力头只能学习一种 “关联模式”（比如只关注相邻词），而**多头注意力通过多个头并行计算，能同时关注多种不同的关联（例如：一个头关注 “谁做了什么”，另一个头关注 “动作的对象是什么”）**。这种设计能**显著提升模型对复杂序列的建模能力。**
+
+整体的计算流程是：
+
+- 1.词嵌入矩阵先通过线性层（W_Q、W_K、W_V）生成高维度的 Q、K、V 矩阵，其中（维度 = 头数 × 单头维度）
+- 2.再将高维度的 Q、K、V 按头切分（如总维度 4，2 个头，每个头切分 2 维）。再将切分完成的头输入到对应的注意力模块中进行计算。
+- 3.每个头独立计算完成后，将结果拼接，再通过线性层进行线性变换输出
+
+<img width="544" height="725" alt="image" src="https://github.com/user-attachments/assets/337f451b-1aaf-40e8-a3cf-40cd2a9359d9" />
+
+<img width="539" height="362" alt="image" src="https://github.com/user-attachments/assets/c87e0b48-457d-42d1-a2cf-834794830250" />
 
 
+### Masked Multi-Head ATT （带掩码的多头注意力）
+
+在自回归任务（如语言模型生成、机器翻译的解码器）中，模型需要基于 “已生成的内容” 预测 “下一个内容”（例如生成句子时，预测第t个词只能依赖前t-1个词）。
+
+若直接使用普通 Multi-Head Attention，模型会 “看到未来的信息”（如预测第 2 个词时看到第 3、4 个词），导致作弊。
+
+Masked Multi-Head Attention 通过 “掩码矩阵” 实现这一约束：
+
+**掩码矩阵是一个与注意力分数维度相同的矩阵**，其中**需要屏蔽的位置被设为负无穷**（或极小值）；**（Mask 操作是在 Self-Attention 的 Softmax 之前使用的）**
+
+注意力分数经过 Softmax 时，负无穷位置的权重会被压缩为 0，从而让模型 “看不到” 这些位置的信息。
+
+想实现的效果如图：
+
+<img width="656" height="184" alt="image" src="https://github.com/user-attachments/assets/7d065c4c-4972-4cec-8bbf-e305ef0d0886" />
+
+实现过程：
+
+1.Decoder 的输入矩阵和 Mask 矩阵，输入矩阵包含 "<Begin> I have a cat" (0, 1, 2, 3, 4) 五个单词的表示向量，Mask 是一个 5×5 的矩阵。在 Mask 可以发现单词 0 只能使用单词 0 的信息，而单词 1 可以使用单词 0, 1 的信息，即只能使用之前的信息。
+
+<img width="664" height="294" alt="image" src="https://github.com/user-attachments/assets/b8a257eb-194a-4f29-b339-e3d2b988df27" />
+
+2.通过输入矩阵X计算得到Q,K,V矩阵。然后计算Q和K转置的乘积 
+
+3.得到计算后的权重矩阵之后，需要进行 Softmax，计算 attention score，在 Softmax 之前需要使用Mask矩阵遮挡住每一个单词之后的信息，遮挡操作如下。**Mask权重矩阵上进行 Softmax**，每一行的和都为 1。但是单词 0 在单词 1, 2, 3, 4 上的 attention score 都为 0
+
+<img width="684" height="221" alt="image" src="https://github.com/user-attachments/assets/72e39431-30bf-4542-a76d-681834bcc886" />
+
+4.Mask权重矩阵与矩阵V相乘，得到输出 Z，则单词 1 的输出向量只包含单词 1 信息
+
+<img width="657" height="283" alt="image" src="https://github.com/user-attachments/assets/1c84c895-e359-4b53-8352-4a46e555ba6d" />
+
+5.其余计算和之前的多头注意力机制相同
 
 
+## Transformer中的编码器结构
+
+下图是编码器结构，其中的ATT相关的内容上述已经介绍，下面就是网络架构的详细解释
+
+<img width="261" height="333" alt="image" src="https://github.com/user-attachments/assets/9ec06f8a-6867-426f-9689-349c3c0364eb" />
 
 
+### ADD & Norm Layer
+
+这是两个部分的组合，分别是残差连接和层归一化。先贴上公式
+
+<img width="672" height="117" alt="image" src="https://github.com/user-attachments/assets/68e37a65-0afb-40db-b0db-3ea821107f06" />
+
+X表示 Multi-Head Attention 或者 Feed Forward 的输入，MultiHeadAttention(X) 和 FeedForward(X) 表示输出 **(输出与输入 X 维度是一样的，所以可以相加)。**
+
+残差连接就是将网络的输入和输出相加，通常用于解决多层网络训练的问题，可以让网络只关注当前差异的部分，如：
+
+<img width="675" height="141" alt="image" src="https://github.com/user-attachments/assets/814848d2-3021-42bd-8611-fc70fdd994d3" />
+
+层归一化就是将每一层神经元的输入都转成均值方差都一样的，这样可以稳定训练、加速收敛、提升模型泛化能力。本质是通过调整特征的分布（均值、方差），避免梯度消失或爆炸。
+
+**层归一化和Batch归一化的对比**
+
+BatchNorm（批量归一化）：对「同一批次内的所有样本，针对每个特征维度单独归一化」。即：固定特征维度，计算该特征在整个批次所有样本上的均值和方差，再标准化。跨样本、同特征（同一特征在批次内所有样本上归一）；适用：图像 / 语音（固定特征维度、批量大）、CNN 模型
+
+LayerNorm（层归一化）：对「单个样本，针对所有特征维度归一化」。即：固定样本，计算该样本所有特征维度的均值和方差，再标准化。同样本、跨特征（单个样本在所有特征维度上归一）适用：序列任务（NLP / 时序数据）、Transformer 模型、小批量 / 单样本场景（如边缘设备实时推理）
 
 
+### Feed Forward
+
+Feed Forward 层比较简单，是一个两层的全连接层，第一层的激活函数为 Relu，第二层不使用激活函数，对应的公式如下。
+
+<img width="618" height="93" alt="image" src="https://github.com/user-attachments/assets/edb706d8-5827-462e-b843-c210d56e0bdf" />
+
+X是输入，Feed Forward 最终得到的输出矩阵的维度与X一致。
 
 
+**最后就是将这些编码器结构拼接起来，Transformer中组合了6个编码器结构，构成了编码器模块**
+
+第一个 编码器结构 的输入为句子单词的表示向量矩阵，后续 Encoder block 的输入是前一个 Encoder block 的输出，**最后一个 Encoder block 输出的矩阵就是编码信息矩阵 C**，这一矩阵后续会用到 Decoder 中。
 
 
+## Transformer中的解码器结构
 
+下图是解码器结构，其中的ATT相关的内容上述已经介绍，下面就是网络架构的详细解释
 
+<img width="227" height="464" alt="image" src="https://github.com/user-attachments/assets/0f7452d5-5b19-4348-b7f6-c2e4cdcc653a" />
 
+其中大多数的网络结构都和上述介绍的相同，但是不同的地方在于，**解码器结构中的第二个多头注意力机制（交叉注意力 / Cross-Attentio）使用的QKV矩阵不同**
 
+ **Multi-Head Attention 层的K, V矩阵使用 Encoder 的编码信息矩阵C进行计算。Q使用上一个 Decoder block 的输出计算。**
 
+核心原因是 「让解码器获取输入序列的全局、融合后的上下文信息，实现更精准的语义对齐」，具体拆解：
 
+编码器的输出编码矩阵：是输入序列的「全局语义字典」
 
+编码器通过多层自注意力（每层用自己的中间 K/V 计算）和前馈网络，对输入序列（如 “电机温度过高”）进行层层加工：
 
+第一层自注意力：捕捉相邻词的局部关联（如 “电机” 与 “温度”）；
 
+后续层自注意力：捕捉长距离全局关联（如 “温度过高” 与 “散热系统” 的隐含关联）；
 
+最终输出的编码矩阵：每个位置的特征都融合了 **输入序列所有位置的全局上下文信息（相当于编码器对输入的 “最终理解”）。**
 
+用这个矩阵**作为交叉注意力的 K 和 V，相当于给解码器提供了一本「输入序列的全局语义字典」**—— 解码器可以通过自己的 Q，查询这本字典中与当前生成内容最相关的信息。
 
+**最后只需要通过线性层进行线性变换，再将嵌入向量转换为概率即可**
+
+<img width="650" height="388" alt="image" src="https://github.com/user-attachments/assets/7e84e7b7-a8d8-4696-b818-100ea772ab8c" />
 
 
 
