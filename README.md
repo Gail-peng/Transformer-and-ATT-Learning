@@ -66,7 +66,10 @@ Transformer 擅长建模不同模态数据的关联，是多模态学习的核�
 - Encoder（编码器）模块： 图中左侧部分
 - Decoder（解码器）模块： 图中右侧部分
 
-可以看到，在编码器和解码器模块中，都包含了6个小的单元，对应的是编码器和解码器结构。这些结构会在后面的编码器解码器部分详细解释。
+可以看到，在编码器和解码器模块中，都包含了6个小的单元，见下图，对应的是编码器和解码器结构。这些结构会在后面的部分详细解释。
+
+<img width="519" height="726" alt="image" src="https://github.com/user-attachments/assets/305c181a-984b-4de1-8a25-252f58bba245" />
+
 
 接下来重要的事情就是先熟悉熟悉 Transformer 整体的工作流程
 
@@ -139,6 +142,111 @@ Transformer 擅长建模不同模态数据的关联，是多模态学习的核�
 1. 这个算法能够处理不同长度的文本的Embedding，假设训练集里面最长的句子是有 50 个单词，使用时有一个长度为 60 的句子，则使用公式计算的方法可以计算出后续的 Embedding。
 
 2.相对位置清晰，模型能够感知到距离关系：对于固定长度的间距 k，PE(pos+k) 可以用 PE(pos) 计算得到。因为 Sin(A+B) = Sin(A)Cos(B) + Cos(A)Sin(B), Cos(A+B) = Cos(A)Cos(B) - Sin(A)Sin(B)。
+
+
+## 重中之重：Self-ATT （自注意力机制）
+
+先上图，明确一下Self-ATT机制用在了模型中的哪个部分
+
+<img width="519" height="726" alt="image" src="https://github.com/user-attachments/assets/4c8679d9-4a4e-453b-b1b6-17966d99d011" />
+
+可以看到，在Transformer的编码器结构和解码器结构中都使用了 Self-ATT 机制。
+
+其中呢，编码器结构使用了一个 Multi-Head Attention（**多个 Self-Attention组成**），解码层使用了一个 Masked Multi-Head Attention 和一个 Multi-Head Attention。
+
+这些ATT机制是Transformer模型的重点，所以下面详细解释ATT相关的知识信息。
+
+
+### Self-Attention 机制
+
+在序列建模任务（如 NLP、CV）中，我们需要让序列中的每个元素（如单词、图像 patch）能够 “关注” 其他元素，从而捕捉元素间的语义 / 结构关联（即 “长距离依赖”）。
+
+例如，在句子 “我喜欢吃苹果” 中，“我” 需要关注 “苹果” 才能理解动作的对象；在图像中，“猫” 的特征需要关注 “尾巴”“耳朵” 的特征才能完整建模。
+
+自注意力的核心就是实现这种 **“动态关注”**—— 让每个元素根据自身与其他元素的 “相关性”，自适应地聚合信息。
+
+如下图所示，Self-ATT 的结构是这样的
+
+<img width="504" height="606" alt="image" src="https://github.com/user-attachments/assets/5ed5e844-73f1-4f94-811f-e25909fc50ec" />
+
+在ATT计算过程中，需要先得到Q\K\V三个矩阵，实际中，Self-Attention 接收的是输入(单词的表示向量x组成的矩阵X) 或者上一个 Encoder block 的输出。**而Q,K,V正是通过 Self-Attention 的输入进行线性变换得到的。**
+
+
+
+#### Q\K\V 矩阵
+
+Q、K、V 的设计源于信息检索的 “查询 - 键 - 值” 范式，我们可以类比为：
+
+- 你想找一本关于 “人工智能” 的书（查询 Q）；
+- 图书馆里的每本书都有一个 “标签”（如 “机器学习”“计算机视觉”）（键 K）；
+- 找到匹配的 “标签” 后，你需要的是这本书的 “内容”（值 V）。
+
+流程为 查询-匹配标签-找到标签对应值
+
+输入转换：对于序列中的每个元素（如词嵌入向量x），通过三个可学习的权重矩阵 (W_Q、W_K、W_V)进行线性变换，生成三个向量：
+
+<img width="240" height="143" alt="image" src="https://github.com/user-attachments/assets/1eeeb8df-47e1-4ca3-8d00-2e583ef96d24" />
+
+**(W_Q、W_K、W_V) 是模型训练过程中学习到的参数，确保 Q、K、V 能适配任务需求**
+ 
+注意力计算：**通过 Q 与 K 的相似度计算 “注意力分数”，再用分数加权 V，得到最终的注意力输出**
+
+
+**为什么这么计算：**
+
+为了判断 “哪些元素需要被关注”，我们需要计算Q 与所有 K 的相似度（即 “注意力分数”）。常用的计算方式是点积：
+
+<img width="312" height="54" alt="image" src="https://github.com/user-attachments/assets/d5b190f1-1391-486e-b192-30fc757714be" />
+
+**点积的结果越大，说明 Q 和 K 的语义 / 结构越相关。**
+
+例如，“我” 的 Q 与 “苹果” 的 K 点积分数很高，说明两者语义关联强，需要重点关注。
+
+Softmax 归一化：让注意力成为 “概率分布”
+
+为了让分数具有可解释性（权重之和为 1），我们对所有注意力分数做Softmax 归一化：
+
+<img width="407" height="74" alt="image" src="https://github.com/user-attachments/assets/ecd6b27b-d1fb-4205-9940-bb6b1892a1cb" />
+
+除以<img width="46" height="40" alt="image" src="https://github.com/user-attachments/assets/91c639c9-3d5d-4e5c-9572-0e1aa3b35187" /> (d_k 是 K 的维度）是为了避免点积结果过大，导致 Softmax 后梯度消失（数值稳定性优化）。
+
+最后，用归一化的注意力权重对所有 V 进行加权求和，得到该位置的自注意力输出：
+
+<img width="361" height="70" alt="image" src="https://github.com/user-attachments/assets/74ebcdbc-3b71-4987-a675-fba963dec774" />
+
+
+
+
+
+
+
+
+
+
+
+Self-Attention 的输入用矩阵X进行表示，则可以使用线性变阵矩阵WQ,WK,WV计算得到Q,K,V。计算如下图所示，注意 X, Q, K, V 的每一行都表示一个单词。
+
+以上的线性变化是将高维度的句子Embedding输入矩阵（由单词Embedding拼接得到的）进行线性变换，将其转换为设定维度句子Embedding矩阵
+
+<img width="527" height="750" alt="image" src="https://github.com/user-attachments/assets/e2bcc3dc-0651-4dfd-b233-1f77963d74c7" />
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
