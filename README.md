@@ -327,9 +327,32 @@ Masked Multi-Head Attention 通过 “掩码矩阵” 实现这一约束：
 
 X表示 Multi-Head Attention 或者 Feed Forward 的输入，MultiHeadAttention(X) 和 FeedForward(X) 表示输出 **(输出与输入 X 维度是一样的，所以可以相加)。**
 
-残差连接就是将网络的输入和输出相加，通常用于解决多层网络训练的问题，可以让网络只关注当前差异的部分，如：
+残差连接（https://simonthomine.github.io/CoursDeepLearning/zh/Bonus_CoursSp%C3%A9cifiques/07_ConnexionsResiduelles.html）就是将网络的输入和输出相加，通常用于解决多层网络训练的问题，可以让网络只关注当前差异的部分，如：
 
 <img width="675" height="141" alt="image" src="https://github.com/user-attachments/assets/814848d2-3021-42bd-8611-fc70fdd994d3" />
+
+**此处补充反向梯度传播算法的计算过程：https://blog.csdn.net/ft_sunshine/article/details/90221691**
+
+<img width="881" height="538" alt="image" src="https://github.com/user-attachments/assets/59edd4c1-0904-41e7-a9bf-3fde09784343" />
+
+<img width="880" height="708" alt="image" src="https://github.com/user-attachments/assets/499bebee-24e5-45f9-a66e-59ff4a9d98ce" />
+
+
+残差连接的核心是在神经网络的 “主路径”（负责复杂特征变换）旁，增加一条恒等映射的旁路路径（Skip Connection），让前一层的输入可以直接跳过 1 层或多层，与后一层的输出相加。其核心公式如下：
+
+<img width="390" height="64" alt="image" src="https://github.com/user-attachments/assets/1315af81-6fde-4975-8548-68ba54fde8b7" />
+
+x：某层网络的输入
+
+F(x, W)：主路径的变换（由卷积 / 全连接层 + 激活函数组成，称为残差函数）
+
+x：旁路的恒等映射（输入直接传递，无额外参数）
+
+相加后再经过激活函数（如 ReLU）输出
+
+<img width="945" height="348" alt="image" src="https://github.com/user-attachments/assets/de7e7802-c8b5-4724-a433-9c1c3c7a291c" />
+
+
 
 层归一化就是将每一层神经元的输入都转成均值方差都一样的，这样可以稳定训练、加速收敛、提升模型泛化能力。本质是通过调整特征的分布（均值、方差），避免梯度消失或爆炸。
 
